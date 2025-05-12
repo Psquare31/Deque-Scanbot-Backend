@@ -1,31 +1,56 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const dotenv=require('dotenv').config();
-const {Client} =require('pg');
+const dotenv = require('dotenv').config();
+const mongoose = require('mongoose');
+const Product = require('./models/Product');
 
 const app = express();
 app.use(bodyParser.json());
 app.use(cors());
 
-const pool = new Client({
-  user: process.env.USER,
-  host: process.env.HOST,
-  database: process.env.DATABASE,
-  password: process.env.PASSWORD,
-  port: process.env.PORT,
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+}).then(() => console.log("Connected to MongoDB"))
+  .catch((err) => console.error("MongoDB connection error:", err));
+
+// CREATE product
+app.post('/api/products', async (req, res) => {
+  try {
+    const { name, price, discount, barcode } = req.body;
+    const product = new Product({ name, price, discount, barcode });
+    await product.save();
+    res.status(201).json(product);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
-pool.connect().then(()=>console.log("Connected to DB"))
 
 // GET product by barcode
 app.get('/api/products/:barcode', async (req, res) => {
   const { barcode } = req.params;
   try {
-    const result = await pool.query('SELECT * FROM products WHERE barcode = $1', [barcode]);
-    if (result.rows.length === 0) {
+    const product = await Product.findOne({ barcode });
+    if (!product) {
       return res.status(404).json({ error: 'Product not found' });
     }
-    res.json(result.rows[0]);
+    res.json(product);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE product by barcode
+app.delete('/api/products/:barcode', async (req, res) => {
+  const { barcode } = req.params;
+  try {
+    const result = await Product.deleteOne({ barcode });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    res.json({ message: 'Product deleted' });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
   }
