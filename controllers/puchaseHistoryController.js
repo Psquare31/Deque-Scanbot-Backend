@@ -8,6 +8,7 @@ class PurchaseHistoryController {
         name,
         email,
         items,
+        quantity,
         amount,
         orderId,//if exists
       });
