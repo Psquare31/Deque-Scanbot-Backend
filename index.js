@@ -4,6 +4,7 @@ const cors = require('cors');
 const dotenv = require('dotenv').config();
 const mongoose = require('mongoose');
 const Product = require('./models/Product');
+const purchaseHistoryRoutes = require('./routes/purchaseHistory');
 
 const app = express();
 app.use(bodyParser.json());
@@ -57,6 +58,9 @@ app.delete('/api/products/:barcode', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// Use purchase history routes
+app.use('/api/purchase-history', purchaseHistoryRoutes);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
