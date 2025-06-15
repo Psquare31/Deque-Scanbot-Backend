@@ -1,10 +1,26 @@
-const express = require('express');
-const PurchaseHistoryController = require('../controllers/puchaseHistoryController');
+import express from "express";
+import {
+    createPurchaseHistory,
+    getPurchaseHistoryByUserId,
+    getPurchaseHistoryByOrderId,
+    deletePurchaseHistory,
+    updatePurchaseHistoryItems
+} from "../controllers/purchaseHistoryController.js";
 
 const router = express.Router();
-const purchaseHistoryController = new PurchaseHistoryController();
 
-// POST route to create purchase history
-router.post('/', purchaseHistoryController.createPurchaseHistory.bind(purchaseHistoryController));
 
-module.exports = router;
+router.post("/", createPurchaseHistory);
+
+
+router.get("/user/:userId", getPurchaseHistoryByUserId);
+
+
+router.get("/order/:orderId", getPurchaseHistoryByOrderId);
+
+
+router.delete("/:orderId", deletePurchaseHistory);
+
+router.patch("/:orderId/items", updatePurchaseHistoryItems);
+
+export default router;
