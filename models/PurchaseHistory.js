@@ -28,7 +28,10 @@ const purchaseHistorySchema = new mongoose.Schema({
         quantity: {
             type: Number,
             required: true
-        }
+        },
+        rating: { type: Number, min: 1, max: 5 },
+        review: { type: String },
+        category: { type: String, required: true }
     }],
     amount: {
         type: Number,
