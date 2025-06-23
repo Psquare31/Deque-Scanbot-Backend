@@ -4,7 +4,8 @@ import {
     getPurchaseHistoryByUserId,
     getPurchaseHistoryByOrderId,
     deletePurchaseHistory,
-    updatePurchaseHistoryItems
+    updatePurchaseHistoryItems,
+    deletePurchaseHistoryItems
 } from "../controllers/purchaseHistoryController.js";
 
 const router = express.Router();
@@ -21,6 +22,8 @@ router.get("/order/:orderId", getPurchaseHistoryByOrderId);
 
 router.delete("/:orderId", deletePurchaseHistory);
 
-router.patch("/:orderId/items", updatePurchaseHistoryItems);
+router.patch("/user/:userId/items", updatePurchaseHistoryItems);
+
+router.patch("/user/:userId/items/delete", deletePurchaseHistoryItems);
 
 export default router;

@@ -5,7 +5,7 @@ import {
     deleteProductByBarcode,
     updateProductByBarcode,
     getAllProducts,
-    updateProductById
+    updateProductById,
 } from "../controllers/productController.js";
 
 const router = express.Router();

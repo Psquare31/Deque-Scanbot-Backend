@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import mongoose from "mongoose";
 import purchaseHistoryRoutes from "./routes/purchaseHistory.js";
 import productRoutes from "./routes/products.js";
+import recommendationRoutes from "./routes/recommendations.js";
 
 dotenv.config();
 
@@ -19,11 +20,10 @@ mongoose.connect(process.env.MONGO_URI, {
 }).then(() => console.log("Connected to MongoDB"))
   .catch((err) => console.error("MongoDB connection error:", err));
 
-
 app.use('/api/products', productRoutes);
-
-
 app.use('/api/purchase-history', purchaseHistoryRoutes);
+app.use('/api/recommendations', recommendationRoutes);
+
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
