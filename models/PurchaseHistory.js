@@ -14,7 +14,7 @@ const purchaseHistorySchema = new mongoose.Schema({
         required: true
     },
     items: [{
-        productId: {
+        _id: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Product',
             required: true

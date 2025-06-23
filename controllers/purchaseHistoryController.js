@@ -25,10 +25,10 @@ const createPurchaseHistory = asyncHandler(async (req, res) => {
 
     // Validate items array
     for (const item of items) {
-        if (!item.productId || !item.name || !item.price || !item.barcode || !item.quantity || !item.category) {
-            throw ApiError.create(400, "Each item must have productId, name, price, barcode, quantity, and category");
+        if (!item._id || !item.name || !item.price || !item.barcode || !item.quantity || !item.category) {
+            throw ApiError.create(400, "Each item must have _id, name, price, barcode, quantity, and category");
         }
-        if (!mongoose.isValidObjectId(item.productId)) {
+        if (!mongoose.isValidObjectId(item._id)) {
             throw ApiError.create(400, "Invalid product ID format");
         }
         if (typeof item.quantity !== 'number' || item.quantity <= 0) {
@@ -53,7 +53,7 @@ const createPurchaseHistory = asyncHandler(async (req, res) => {
         // Update product quantities and total purchases
         for (const item of items) {
             await Product.findByIdAndUpdate(
-                item.productId,
+                item._id,
                 {
                     $inc: {
                         quantity: -item.quantity,
@@ -105,7 +105,7 @@ const getPurchaseHistoryByUserId = asyncHandler(async (req, res) => {
 
         const purchaseHistory = await PurchaseHistory.find(filter)
             .sort(sort)
-            .populate('items.productId', 'name barcode category');
+            .populate('items._id', 'name barcode category');
 
         return res
             .status(200)
@@ -185,11 +185,11 @@ const deletePurchaseHistory = asyncHandler(async (req, res) => {
 });
 
 const updatePurchaseHistoryItems = asyncHandler(async (req, res) => {
-    const { orderId } = req.params;
+    const { userId } = req.params;
     const { items, additionalAmount } = req.body;
 
-    if (!orderId) {
-        throw ApiError.create(400, "Order ID is required");
+    if (!userId) {
+        throw ApiError.create(400, "User ID is required");
     }
 
     if (!items || !Array.isArray(items)) {
@@ -201,7 +201,7 @@ const updatePurchaseHistoryItems = asyncHandler(async (req, res) => {
     }
 
     try {
-        const purchaseHistory = await PurchaseHistory.findOne({ orderId });
+        const purchaseHistory = await PurchaseHistory.findOne({ userId });
         if (!purchaseHistory) {
             throw ApiError.create(404, "Purchase history not found");
         }
@@ -209,27 +209,27 @@ const updatePurchaseHistoryItems = asyncHandler(async (req, res) => {
         // Validate new items
         for (const item of items) {
             if (
-                !item.productId || 
+                !item._id || 
                 !item.name || 
                 !item.price || 
                 !item.barcode || 
                 !item.quantity || 
                 !item.category
             ) {
-                throw ApiError.create(400, "Each item must have productId, name, price, barcode, quantity, and category");
+                throw ApiError.create(400, "Each item must have _id, name, price, barcode, quantity, and category");
             }
-            if (!mongoose.isValidObjectId(item.productId)) {
+            if (!mongoose.isValidObjectId(item._id)) {
                 throw ApiError.create(400, "Invalid product ID format");
             }
         }
 
         // Calculate quantity differences for new items only
-        const newItems = new Map(items.map(item => [item.productId.toString(), item.quantity]));
+        const newItems = new Map(items.map(item => [item._id.toString(), item.quantity]));
 
         // Update product quantities for new items
-        for (const [productId, quantity] of newItems) {
+        for (const [_id, quantity] of newItems) {
             await Product.findByIdAndUpdate(
-                productId,
+                _id,
                 {
                     $inc: {
                         quantity: -quantity,
@@ -245,14 +245,14 @@ const updatePurchaseHistoryItems = asyncHandler(async (req, res) => {
 
         // Update purchase history
         const updatedHistory = await PurchaseHistory.findOneAndUpdate(
-            { orderId },
+            { userId },
             {
                 $push: { items: { $each: items } }, // Append new items instead of overwriting
                 amount: newTotalAmount,
                 updatedAt: new Date()
             },
             { new: true, runValidators: true }
-        ).populate('items.productId', 'name barcode category');
+        ).populate('items._id', 'name barcode category');
 
         return res
             .status(200)
@@ -267,6 +267,57 @@ const updatePurchaseHistoryItems = asyncHandler(async (req, res) => {
         throw ApiError.create(500, "Error updating purchase history: " + error.message);
     }
 });
+
+// Controller to delete items from a user's purchase history by productId array
+const deletePurchaseHistoryItems = asyncHandler(async (req, res) => {
+    const { userId } = req.params;
+    const { _ids } = req.body;
+
+    if (!userId) {
+        throw ApiError.create(400, "User ID is required");
+    }
+    if (!_ids || !Array.isArray(_ids) || _ids.length === 0) {
+        throw ApiError.create(400, "_ids must be a non-empty array");
+    }
+
+    try {
+        const purchaseHistory = await PurchaseHistory.findOne({ userId });
+        if (!purchaseHistory) {
+            throw ApiError.create(404, "Purchase history not found");
+        }
+
+        // Filter out items whose _id is in _ids
+        const remainingItems = purchaseHistory.items.filter(
+            item => !_ids.includes(item._id.toString())
+        );
+
+        // Optionally, recalculate the amount
+        const newAmount = remainingItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+        const updatedHistory = await PurchaseHistory.findOneAndUpdate(
+            { userId },
+            {
+                items: remainingItems,
+                amount: newAmount,
+                updatedAt: new Date()
+            },
+            { new: true, runValidators: true }
+        ).populate('items._id', 'name barcode category');
+
+        return res
+            .status(200)
+            .json(
+                new ApiResponse(
+                    200,
+                    updatedHistory,
+                    "Items deleted from purchase history successfully"
+                )
+            );
+    } catch (error) {
+        throw ApiError.create(500, "Error deleting items from purchase history: " + error.message);
+    }
+});
+
 const addRatingToPurchase = asyncHandler(async (req, res) => {
     const { orderId } = req.params;
     const { ratings } = req.body;
@@ -287,14 +338,14 @@ const addRatingToPurchase = asyncHandler(async (req, res) => {
 
         // Validate ratings
         for (const rating of ratings) {
-            if (!rating.productId || typeof rating.rating !== 'number' || rating.rating < 1 || rating.rating > 5) {
-                throw ApiError.create(400, "Each rating must have a valid productId and rating between 1 and 5");
+            if (!rating._id || typeof rating.rating !== 'number' || rating.rating < 1 || rating.rating > 5) {
+                throw ApiError.create(400, "Each rating must have a valid _id and rating between 1 and 5");
             }
         }
 
         // Update product ratings and purchase history items
         const updatedItems = purchaseHistory.items.map(item => {
-            const rating = ratings.find(r => r.productId.toString() === item.productId.toString());
+            const rating = ratings.find(r => r._id.toString() === item._id.toString());
             if (rating) {
                 return { ...item.toObject(), rating: rating.rating };
             }
@@ -303,9 +354,9 @@ const addRatingToPurchase = asyncHandler(async (req, res) => {
 
         // Update product ratings
         for (const rating of ratings) {
-            const product = await Product.findById(rating.productId);
+            const product = await Product.findById(rating._id);
             if (!product) {
-                throw ApiError.create(404, `Product with ID ${rating.productId} not found`);
+                throw ApiError.create(404, `Product with ID ${rating._id} not found`);
             }
 
             // Calculate new average rating
@@ -313,7 +364,7 @@ const addRatingToPurchase = asyncHandler(async (req, res) => {
             const newRating = ((product.rating * product.totalPurchases) + rating.rating) / (newTotalPurchases + 1);
 
             await Product.findByIdAndUpdate(
-                rating.productId,
+                rating._id,
                 {
                     rating: Number(newRating.toFixed(1)),
                     totalPurchases: newTotalPurchases + 1
@@ -329,7 +380,7 @@ const addRatingToPurchase = asyncHandler(async (req, res) => {
                 updatedAt: new Date()
             },
             { new: true, runValidators: true }
-        ).populate('items.productId', 'name barcode category');
+        ).populate('items._id', 'name barcode category');
 
         return res
             .status(200)
@@ -351,5 +402,6 @@ export {
     getPurchaseHistoryByOrderId,
     deletePurchaseHistory,
     updatePurchaseHistoryItems,
-    addRatingToPurchase
+    addRatingToPurchase,
+    deletePurchaseHistoryItems
 }; 
