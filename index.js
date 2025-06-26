@@ -11,9 +11,10 @@ dotenv.config();
 
 const app = express();
 app.use(bodyParser.json());
-app.use(cors());
+
 app.use(cors({
-  origin: 'https://dequeue-scanbot.vercel.app/', // Your frontend URL
+  origin: 'https://dequeue-scanbot.vercel.app',
+  origin: 'http://localhost:5173', // Your frontend URL
   credentials: true
 }));
 // Connect to MongoDB
@@ -25,6 +26,10 @@ app.use('/api/products', productRoutes);
 app.use('/api/purchase-history', purchaseHistoryRoutes);
 app.use('/api/recommendations', recommendationRoutes);
 
+
+app.get('/', (req, res) => {
+  res.send('Welcome to the Deque Scanbot Backend API');   
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
