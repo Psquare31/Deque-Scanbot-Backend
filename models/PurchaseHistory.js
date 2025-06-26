@@ -14,7 +14,7 @@ const purchaseHistorySchema = new mongoose.Schema({
         required: true
     },
     items: [{
-        _id: {
+        _id: {  // Keep as _id to match frontend
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Product',
             required: true
@@ -44,7 +44,11 @@ const purchaseHistorySchema = new mongoose.Schema({
     createdAt: {
         type: Date,
         default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
     }
 });
 
-export const PurchaseHistory = new mongoose.model('PurchaseHistory', purchaseHistorySchema); 
+export const PurchaseHistory = new mongoose.model('PurchaseHistory', purchaseHistorySchema);

@@ -201,58 +201,51 @@ const updatePurchaseHistoryItems = asyncHandler(async (req, res) => {
     }
 
     try {
-        const purchaseHistory = await PurchaseHistory.findOne({ userId });
+        let purchaseHistory = await PurchaseHistory.findOne({ 
+            userId, 
+            orderId: { $regex: /^draft_/ } 
+        });
+
         if (!purchaseHistory) {
-            throw ApiError.create(404, "Purchase history not found");
-        }
+            // Create new draft purchase history
+            purchaseHistory = await PurchaseHistory.create({
+                userId,
+                name: req.body.name || 'User',
+                email: req.body.email || 'user@example.com',
+                items: items,
+                amount: additionalAmount,
+                orderId: `draft_${Date.now()}`
+            });
+        } else {
+            // Add new items to existing draft
+            const newItems = new Map(items.map(item => [item._id.toString(), item.quantity]));
 
-        // Validate new items
-        for (const item of items) {
-            if (
-                !item._id || 
-                !item.name || 
-                !item.price || 
-                !item.barcode || 
-                !item.quantity || 
-                !item.category
-            ) {
-                throw ApiError.create(400, "Each item must have _id, name, price, barcode, quantity, and category");
-            }
-            if (!mongoose.isValidObjectId(item._id)) {
-                throw ApiError.create(400, "Invalid product ID format");
-            }
-        }
-
-        // Calculate quantity differences for new items only
-        const newItems = new Map(items.map(item => [item._id.toString(), item.quantity]));
-
-        // Update product quantities for new items
-        for (const [_id, quantity] of newItems) {
-            await Product.findByIdAndUpdate(
-                _id,
-                {
-                    $inc: {
-                        quantity: -quantity,
-                        totalPurchases: quantity
+            // Update product quantities for new items
+            for (const [_id, quantity] of newItems) {
+                await Product.findByIdAndUpdate(
+                    _id,
+                    {
+                        $inc: {
+                            quantity: -quantity,
+                            totalPurchases: quantity
+                        }
                     }
-                }
-            );
+                );
+            }
+
+            // Add to existing amount and append new items
+            const newTotalAmount = purchaseHistory.amount + additionalAmount;
+            const updatedItems = [...purchaseHistory.items, ...items];
+
+            // Update purchase history
+            purchaseHistory.items = updatedItems;
+            purchaseHistory.amount = newTotalAmount;
+            purchaseHistory.updatedAt = new Date();
+            await purchaseHistory.save();
         }
 
-        // Add to existing amount and append new items
-        const newTotalAmount = purchaseHistory.amount + additionalAmount;
-        const updatedItems = [...purchaseHistory.items, ...items];
-
-        // Update purchase history
-        const updatedHistory = await PurchaseHistory.findOneAndUpdate(
-            { userId },
-            {
-                $push: { items: { $each: items } }, // Append new items instead of overwriting
-                amount: newTotalAmount,
-                updatedAt: new Date()
-            },
-            { new: true, runValidators: true }
-        ).populate('items._id', 'name barcode category');
+        const updatedHistory = await PurchaseHistory.findById(purchaseHistory._id)
+            .populate('items._id', 'name barcode category');
 
         return res
             .status(200)
@@ -271,7 +264,7 @@ const updatePurchaseHistoryItems = asyncHandler(async (req, res) => {
 // Controller to delete items from a user's purchase history by productId array
 const deletePurchaseHistoryItems = asyncHandler(async (req, res) => {
     const { userId } = req.params;
-    const { _ids } = req.body;
+    const { _ids } = req.body; // Keep as _ids to match frontend
 
     if (!userId) {
         throw ApiError.create(400, "User ID is required");
@@ -281,9 +274,31 @@ const deletePurchaseHistoryItems = asyncHandler(async (req, res) => {
     }
 
     try {
-        const purchaseHistory = await PurchaseHistory.findOne({ userId });
+        const purchaseHistory = await PurchaseHistory.findOne({ 
+            userId, 
+            orderId: { $regex: /^draft_/ } 
+        });
+        
         if (!purchaseHistory) {
-            throw ApiError.create(404, "Purchase history not found");
+            throw ApiError.create(404, "Draft purchase history not found");
+        }
+
+        // Get items to be removed for product quantity restoration
+        const itemsToRemove = purchaseHistory.items.filter(
+            item => _ids.includes(item._id.toString())
+        );
+
+        // Restore product quantities
+        for (const item of itemsToRemove) {
+            await Product.findByIdAndUpdate(
+                item._id,
+                {
+                    $inc: {
+                        quantity: item.quantity,
+                        totalPurchases: -item.quantity
+                    }
+                }
+            );
         }
 
         // Filter out items whose _id is in _ids
@@ -291,11 +306,26 @@ const deletePurchaseHistoryItems = asyncHandler(async (req, res) => {
             item => !_ids.includes(item._id.toString())
         );
 
-        // Optionally, recalculate the amount
+        // Recalculate the amount
         const newAmount = remainingItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-        const updatedHistory = await PurchaseHistory.findOneAndUpdate(
-            { userId },
+        // If no items left, delete the draft
+        if (remainingItems.length === 0) {
+            await PurchaseHistory.findByIdAndDelete(purchaseHistory._id);
+            
+            return res
+                .status(200)
+                .json(
+                    new ApiResponse(
+                        200,
+                        null,
+                        "All items removed. Draft purchase history deleted."
+                    )
+                );
+        }
+
+        const updatedHistory = await PurchaseHistory.findByIdAndUpdate(
+            purchaseHistory._id,
             {
                 items: remainingItems,
                 amount: newAmount,
@@ -315,6 +345,181 @@ const deletePurchaseHistoryItems = asyncHandler(async (req, res) => {
             );
     } catch (error) {
         throw ApiError.create(500, "Error deleting items from purchase history: " + error.message);
+    }
+});
+
+// Update item quantity in purchase history
+const updatePurchaseHistoryItemQuantity = asyncHandler(async (req, res) => {
+    const { userId } = req.params;
+    const { item, oldQuantity, newQuantity } = req.body;
+
+    if (!userId) {
+        throw ApiError.create(400, "User ID is required");
+    }
+
+    if (!item || !item._id || typeof newQuantity !== 'number' || newQuantity <= 0) {
+        throw ApiError.create(400, "Valid item and new quantity are required");
+    }
+
+    try {
+        const purchaseHistory = await PurchaseHistory.findOne({ 
+            userId, 
+            orderId: { $regex: /^draft_/ } 
+        });
+        
+        if (!purchaseHistory) {
+            throw ApiError.create(404, "Draft purchase history not found");
+        }
+
+        // Find and update the specific item
+        const itemIndex = purchaseHistory.items.findIndex(
+            i => i._id.toString() === item._id.toString()
+        );
+
+        if (itemIndex === -1) {
+            throw ApiError.create(404, "Item not found in purchase history");
+        }
+
+        // Update the item quantity
+        purchaseHistory.items[itemIndex].quantity = newQuantity;
+
+        // Recalculate total amount
+        const newAmount = purchaseHistory.items.reduce(
+            (sum, i) => sum + (i.price * i.quantity), 0
+        );
+
+        // Update product quantities (adjust for quantity change)
+        const quantityDifference = newQuantity - oldQuantity;
+        if (quantityDifference !== 0) {
+            await Product.findByIdAndUpdate(
+                item._id,
+                {
+                    $inc: {
+                        quantity: -quantityDifference,
+                        totalPurchases: quantityDifference
+                    }
+                }
+            );
+        }
+
+        // Save the updated purchase history
+        purchaseHistory.amount = newAmount;
+        purchaseHistory.updatedAt = new Date();
+        await purchaseHistory.save();
+
+        const updatedHistory = await PurchaseHistory.findById(purchaseHistory._id)
+            .populate('items._id', 'name barcode category');
+
+        return res
+            .status(200)
+            .json(
+                new ApiResponse(
+                    200,
+                    updatedHistory,
+                    "Purchase history item quantity updated successfully"
+                )
+            );
+    } catch (error) {
+        throw ApiError.create(500, "Error updating item quantity: " + error.message);
+    }
+});
+
+// Delete draft purchase history
+const deletePurchaseHistoryDraft = asyncHandler(async (req, res) => {
+    const { userId } = req.params;
+
+    if (!userId) {
+        throw ApiError.create(400, "User ID is required");
+    }
+
+    try {
+        // Find draft purchase history
+        const draftHistory = await PurchaseHistory.findOne({ 
+            userId, 
+            orderId: { $regex: /^draft_/ } 
+        });
+
+        if (!draftHistory) {
+            return res
+                .status(200)
+                .json(
+                    new ApiResponse(
+                        200,
+                        null,
+                        "No draft purchase history found to delete"
+                    )
+                );
+        }
+
+        // Restore product quantities before deleting
+        for (const item of draftHistory.items) {
+            await Product.findByIdAndUpdate(
+                item._id,
+                {
+                    $inc: {
+                        quantity: item.quantity,
+                        totalPurchases: -item.quantity
+                    }
+                }
+            );
+        }
+
+        // Delete the draft
+        await PurchaseHistory.findByIdAndDelete(draftHistory._id);
+
+        return res
+            .status(200)
+            .json(
+                new ApiResponse(
+                    200,
+                    null,
+                    "Draft purchase history deleted successfully"
+                )
+            );
+    } catch (error) {
+        throw ApiError.create(500, "Error deleting draft purchase history: " + error.message);
+    }
+});
+
+// Finalize purchase history after payment
+const finalizePurchaseHistory = asyncHandler(async (req, res) => {
+    const { userId } = req.params;
+    const { orderId } = req.body;
+
+    if (!userId || !orderId) {
+        throw ApiError.create(400, "User ID and Order ID are required");
+    }
+
+    try {
+        // Find draft purchase history
+        const draftHistory = await PurchaseHistory.findOne({ 
+            userId, 
+            orderId: { $regex: /^draft_/ } 
+        });
+
+        if (!draftHistory) {
+            throw ApiError.create(404, "Draft purchase history not found");
+        }
+
+        // Update with final order ID
+        draftHistory.orderId = orderId;
+        draftHistory.updatedAt = new Date();
+        await draftHistory.save();
+
+        const finalizedHistory = await PurchaseHistory.findById(draftHistory._id)
+            .populate('items._id', 'name barcode category');
+
+        return res
+            .status(200)
+            .json(
+                new ApiResponse(
+                    200,
+                    finalizedHistory,
+                    "Purchase history finalized successfully"
+                )
+            );
+    } catch (error) {
+        throw ApiError.create(500, "Error finalizing purchase history: " + error.message);
     }
 });
 
@@ -403,5 +608,8 @@ export {
     deletePurchaseHistory,
     updatePurchaseHistoryItems,
     addRatingToPurchase,
-    deletePurchaseHistoryItems
-}; 
+    deletePurchaseHistoryItems,
+    updatePurchaseHistoryItemQuantity,
+    deletePurchaseHistoryDraft,
+    finalizePurchaseHistory
+};

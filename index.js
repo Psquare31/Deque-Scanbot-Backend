@@ -12,12 +12,13 @@ dotenv.config();
 const app = express();
 app.use(bodyParser.json());
 app.use(cors());
-
+app.use(cors({
+  origin: 'https://dequeue-scanbot.vercel.app/', // Your frontend URL
+  credentials: true
+}));
 // Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-}).then(() => console.log("Connected to MongoDB"))
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("Connected to MongoDB"))
   .catch((err) => console.error("MongoDB connection error:", err));
 
 app.use('/api/products', productRoutes);

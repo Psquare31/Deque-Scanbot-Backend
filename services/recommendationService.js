@@ -23,7 +23,6 @@ class RecommendationService {
         try {
             // Get user's purchase history
             const userHistory = await PurchaseHistory.find({ userId })
-                .populate('items._id')
                 .sort({ createdAt: -1 });
 
             if (!userHistory.length) {
@@ -123,7 +122,7 @@ class RecommendationService {
 
     prepareProductFeatures(products) {
         return products.map(product => ({
-            _id: product._id,
+            id: product._id,
             name: product.name,
             category: product.category,
             price: product.price,
@@ -179,7 +178,7 @@ class RecommendationService {
             .join(', ');
 
         const productList = products.map(p => ({
-            _id: p._id,
+            id: p.id,
             name: p.name,
             category: p.category,
             price: p.price,
@@ -196,13 +195,13 @@ Total Purchases: ${userPreferences.totalPurchases}
 Available Products:
 ${JSON.stringify(productList, null, 2)}
 
-Please analyze this data and recommend the top 2 products that would be most relevant to this user. 
+Please analyze this data and recommend the top 5 products that would be most relevant to this user. 
 Consider their category preferences, price range, and rating preferences.
 Format your response as a JSON array of product IDs in order of relevance, with a brief explanation for each.
 Example format:
 [
     {
-        "_id": "id1",
+        "productId": "id1",
         "relevance": "high",
         "explanation": "Matches user's category preference and price range"
     }
@@ -273,11 +272,11 @@ Example format:
             userPreferences.categories.forEach((weight, category) => {
                 categoryWeights.set(category, weight);
             });
-            const productMap = new Map(products.map(p => [p._id.toString(), p]));
+            const productMap = new Map(products.map(p => [p.id.toString(), p]));
             const recommendations = aiRecommendations
-                .filter(rec => productMap.has(rec._id))
+                .filter(rec => productMap.has(rec.productId))
                 .map(rec => {
-                    const product = productMap.get(rec._id);
+                    const product = productMap.get(rec.productId);
                     const baseConfidence = this.calculateConfidenceScore(
                         product,
                         userPreferences,
@@ -293,7 +292,7 @@ Example format:
                         Math.max(0.5, baseConfidence * relevanceMultiplier)
                     );
                     return {
-                        _id: product._id,
+                        productId: product.id,
                         name: product.name,
                         category: product.category,
                         price: product.price,
@@ -308,11 +307,11 @@ Example format:
                 .sort((a, b) => b.confidence - a.confidence)
                 .slice(0, 5);
             if (recommendations.length < 5) {
-                const usedProductIds = new Set(recommendations.map(r => r._id.toString()));
+                const usedProductIds = new Set(recommendations.map(r => r.productId.toString()));
                 const additionalProducts = products
-                    .filter(p => !usedProductIds.has(p._id.toString()))
+                    .filter(p => !usedProductIds.has(p.id.toString()))
                     .map(p => ({
-                        _id: p._id,
+                        productId: p.id,
                         name: p.name,
                         category: p.category,
                         price: p.price,
@@ -372,7 +371,7 @@ Example format:
                 return categoryWeight > 0 && priceInRange;
             })
             .map(product => ({
-                _id: product._id,
+                productId: product.id,
                 name: product.name,
                 category: product.category,
                 price: product.price,
