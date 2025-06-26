@@ -4,6 +4,7 @@ import { PurchaseHistory } from '../models/PurchaseHistory.js';
 import { ApiError } from '../utils/ApiError.js';
 import dotenv from 'dotenv';
 dotenv.config();
+//verify last commit
 class RecommendationService {
     constructor() {
         this.apiKey = process.env.HUGGINGFACE_API_KEY;
