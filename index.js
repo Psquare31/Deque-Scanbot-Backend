@@ -13,8 +13,7 @@ const app = express();
 app.use(bodyParser.json());
 
 app.use(cors({
-  origin: 'https://dequeue-scanbot.vercel.app',
-  origin: 'http://localhost:5173', // Your frontend URL
+  origin: 'https://dequeue-scanbot.vercel.app', // Your frontend URL
   credentials: true
 }));
 // Connect to MongoDB
